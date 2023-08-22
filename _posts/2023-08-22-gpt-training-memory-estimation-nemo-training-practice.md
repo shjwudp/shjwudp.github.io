@@ -35,7 +35,7 @@ Before we dive into the details, let's first define some notations:
 Suppose we train a GPT model in NeMo, with ZeRO-1 and bfloat16 mixed precision. The static memory required for training is:
 
 1. Model weights use bfloat16 as the data type; each parameter takes up 2 bytes, so the memory required for model weights is $$\frac{1}{t}P * 2$$.
-2. Optimizer states, NeMo ZeRO-1 optimizer `distributed_fused_adam` uses float32 to two gradient momentum, and int16 to model weights supplementary information, ZeRO-1 divides the optimizer states into $d$ parts, so the memory required for optimizer states is $$(\frac{1}{t}P * 4 * 2 + \frac{1}{t}P * 2)/d$$.
+2. Optimizer states, NeMo ZeRO-1 optimizer `distributed_fused_adam` uses float32 to two gradient momentum, and int16 to model weights supplementary information, ZeRO-1 divides the optimizer states into $$d$$ parts, so the memory required for optimizer states is $$(\frac{1}{t}P * 4 * 2 + \frac{1}{t}P * 2)/d$$.
 3. Gradients use bfloat16 as the data type; each parameter takes up 2 bytes, so the memory required for gradients is $$\frac{1}{t}P * 2$$.
 
 ![ZeRO-1 divides optimizer states among data parallelism](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-1.png){: width="100%" }
@@ -63,9 +63,9 @@ elements:
 
 Summing the above values, in total, the attention block requires $$11sbh + 5as^2b$$ bytes of storage.
 
-**MLP:** The two linear layers store their inputs with size $2sbh$ and $$2* 2.65625sbh$$. The SwiGLU non-linearity also needs its input with size $$2* 2.65625sbh$$ and two intermediate activations with the same size for back-propagation. Finally, dropout stores its mask with size $sbh$. In total, the MLP block requires $$23.25sbh$$ bytes of storage.
+**MLP:** The two linear layers store their inputs with size $$2sbh$$ and $$2* 2.65625sbh$$. The SwiGLU non-linearity also needs its input with size $$2* 2.65625sbh$$ and two intermediate activations with the same size for back-propagation. Finally, dropout stores its mask with size $$sbh$$. In total, the MLP block requires $$23.25sbh$$ bytes of storage.
 
-**Layer norm:** Each layer norm stores its input with size $2sbh$ and therefore in total, we will need $$4sbh$$ of storage.
+**Layer norm:** Each layer norm stores its input with size $$2sbh$$ and therefore in total, we will need $$4sbh$$ of storage.
 
 Summing the memory required for attention, MLP, and layer norms, the memory needed to store the activations for a single layer of a transformer network is:
 
