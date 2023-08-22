@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 'GPT Training Memory Estimation - NeMo Training Practice'
-date: 2023-08-22 19:10:00-0400
+date: 2023-07-04 08:57:00-0400
 tags: NeMo GPT Training Memory-Estimation
 categories: article
 giscus_comments: true
@@ -51,16 +51,16 @@ $$
 ### 2.2 Activations Memory Estimation
 Another one that takes up much memory is activations memory, which is the memory used for storing intermediate activation values during the forward and backward passes of the training process. I will use GPT-Next(LLaMA similar structure) as an example to explain how to estimate activations memory.
 
-![Transformer Architecture](image.png){: width="100%" }
+![Transformer Architecture](/assets/img/blog/image.png){: width="100%" }
 
 The figure above shows that each transformer layer consists of attention and an MLP block connected with two-layer norms. Below, we derive the memory required to store activations for each of these
 elements:
 
 **Attention block:** includes self-attention followed by a linear projection and an attention dropout. The linear projection stores its input activations with size $$2sbh$$, and the attention dropout requires a mask with size $$sbh$$. The self-attention shown in the figure above consists of several elements:
-   - Query (Q), Key (K), and Value (V) matrix multiplies: We only need to store their shared input with size $2sbh$.
-   - QKT matrix multiply: It requires the storage of both Q and K with a total size of $4sbh$.
+   - Query (Q), Key (K), and Value (V) matrix multiplies: We only need to store their shared input with size $$2sbh$$.
+   - QKT matrix multiply: It requires the storage of both Q and K with a total size of $$4sbh$$.
    - Softmax: Softmax output with size $$2as^2b$$ is required for back-propagation.
-   - Softmax dropout: Only a mask with size $as^2b$ is needed.
+   - Softmax dropout: Only a mask with size $$as^2b$$ is needed.
    - Attention over Values (V): We need to store the dropout output ($$2as^2b$$) and the Values($$2sbh$$) and therefore need $$2as^2b + 2sbh$$ of storage.
 
 Summing the above values, in total, the attention block requires $$11sbh + 5as^2b$$ bytes of storage.
@@ -73,7 +73,7 @@ Summing the memory required for attention, MLP, and layer norms, the memory need
 
 Activations memory per layer = $$sbh(38.25 + 5\frac{as}{h})$$.
 
-The majority of the required activation memory is captured by the equation above. However, this equation does not capture the activation memory needed for the input embeddings, the last layer norm, and the output layer cross-entropy. The input embeddings dropout requires $sbh$ bytes of storage; the last layer-norm requires $2sbh$ storage. Finally, the cross entropy loss requires storing the logits, which are calculated in a 32-bit floating point and, as a result, will require $$4sbv$$ of storage. So the extra memory due to the input embeddings, the last layer-norm, and the output layer is $$5sbh + 4sbv$$.
+The majority of the required activation memory is captured by the equation above. However, this equation does not capture the activation memory needed for the input embeddings, the last layer norm, and the output layer cross-entropy. The input embeddings dropout requires $$sbh$$ bytes of storage; the last layer-norm requires $$2sbh$$ storage. Finally, the cross entropy loss requires storing the logits, which are calculated in a 32-bit floating point and, as a result, will require $$4sbv$$ of storage. So the extra memory due to the input embeddings, the last layer-norm, and the output layer is $$5sbh + 4sbv$$.
 
 Adding the above two equations, the total memory required for activations is:
 
@@ -87,7 +87,7 @@ $$
 M_{activation} = sbhL(10 + 28.25/t) + 2sbh + (3sbh + 4sbv)/t
 $$
 
-*This chapter contains many excerpts from [refer 1](https://proceedings.mlsys.org/paper_files/paper/2023/hash/e851ca7b43815718fbbac8afb2246bf8-Abstract-mlsys2023.html); only in the MLP part there is a formula change because of the new activation function of GPT-Next.*
+*This chapter contains many excerpts from [Korthikanti et al., 2023](https://proceedings.mlsys.org/paper_files/paper/2023/hash/e851ca7b43815718fbbac8afb2246bf8-Abstract-mlsys2023.html); only in the MLP part there is a formula change because of the new activation function of GPT-Next.*
 
 ### 2.3 Cross Entropy Overhead, PyTorch Overhead, and CUDA Context
 
@@ -160,7 +160,7 @@ The memory snapshot tool can see the change in PyTorch memory over time. In the 
 
 After some analysis, I found that this phenomenon is due to the special bucket mechanism of the optimizer `apex.distributed_fused_adam`. The `apex.distributed_fused_adam` bucket mechanism is designed for parameter updates. When updating parameters, doing gradient updates one by one will launch many small kernels, which is inefficient, in place `apex.distributed_fused_adam` gradients are placed in continuous buffers(bucket), and many small kernels can be combined into one big kernel to improve efficiency. But there is also a problem with this design. The bucket has a fixed length, and if there are few parameters and the bucket is large, it will cause waste. Unfortunately, I used a 200MB bucket in gpt-1b, and tensor parallel will make the parameters on each rank tiny. When tp=4, a 50MB bucket is enough, which is the cause I used four times the estimated memory.
 
-We can calculate the appropriate bucket size by the formula $4 * P / Lt$, where $P$ is the number of parameters, $L$ is the number of transformer layers, and $t$ is the tensor parallel size. It needs to be divided by $L$ because NeMo will make a bucket for each layer of the transformer, and $P/t$ is the total number of parameters on each instance when using tensor parallel, and $4$ is for 32-bit floating point datatype.
+We can calculate the appropriate bucket size by the formula $$4 * P / Lt$$, where $$P$$ is the number of parameters, $$L$$ is the number of transformer layers, and $$t$$ is the tensor parallel size. It needs to be divided by $$L$$ because NeMo will make a bucket for each layer of the transformer, and $$P/t$$ is the total number of parameters on each instance when using tensor parallel, and $$4$$ is for 32-bit floating point datatype.
 
 After correcting the optimizer bucket size, I re-did the experiment, and the result was as expected.
 
