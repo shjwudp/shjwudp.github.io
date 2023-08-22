@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 'GPT Training Memory Estimation - NeMo Training Practice'
-date: 2023-07-04 08:57:00-0400
+date: 2023-08-22 19:10:00-0400
 tags: NeMo GPT Training Memory-Estimation
 categories: article
 giscus_comments: true
