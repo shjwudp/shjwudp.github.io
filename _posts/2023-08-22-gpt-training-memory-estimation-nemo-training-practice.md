@@ -8,8 +8,6 @@ giscus_comments: true
 related_posts: false
 ---
 
-# GPT Training Memory Estimation - NeMo Training Practice
-
 ## 1 Introduction
 
 Training large-scale language models like GPT requires efficient memory management and optimization techniques. This article will discuss memory estimation with model hyperparameters, PyTorch memory profiling tools, and some improvements to the NeMo framework.
