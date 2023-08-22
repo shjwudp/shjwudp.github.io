@@ -1,7 +1,7 @@
 ---
 layout: post
-title: 'GPT Training Memory Estimation - NeMo Training Practice'
-date: 2023-07-04 08:57:00-0400
+title: 'GPT Training Memory Estimation - NeMo Practice'
+date: 2023-08-22 20:00:00 +0800
 tags: NeMo GPT Training Memory-Estimation
 categories: article
 giscus_comments: true
@@ -38,7 +38,7 @@ Suppose we train a GPT model in NeMo, with ZeRO-1 and bfloat16 mixed precision. 
 2. Optimizer states, NeMo ZeRO-1 optimizer `distributed_fused_adam` uses float32 to two gradient momentum, and int16 to model weights supplementary information, ZeRO-1 divides the optimizer states into $d$ parts, so the memory required for optimizer states is $$(\frac{1}{t}P * 4 * 2 + \frac{1}{t}P * 2)/d$$.
 3. Gradients use bfloat16 as the data type; each parameter takes up 2 bytes, so the memory required for gradients is $$\frac{1}{t}P * 2$$.
 
-![ZeRO-1 divides optimizer states among data parallelism](/assets/img/blog/image-1.png){: width="100%" }
+![ZeRO-1 divides optimizer states among data parallelism](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-1.png){: width="100%" }
 
 In total, the static memory required for training is:
 
@@ -49,7 +49,7 @@ $$
 ### 2.2 Activations Memory Estimation
 Another one that takes up much memory is activations memory, which is the memory used for storing intermediate activation values during the forward and backward passes of the training process. I will use GPT-Next(LLaMA similar structure) as an example to explain how to estimate activations memory.
 
-![Transformer Architecture](/assets/img/blog/image.png){: width="100%" }
+![Transformer Architecture](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/transformer-architecture.png){: width="100%" }
 
 The figure above shows that each transformer layer consists of attention and an MLP block connected with two-layer norms. Below, we derive the memory required to store activations for each of these
 elements:
@@ -89,7 +89,7 @@ $$
 
 ### 2.3 Cross Entropy Overhead, PyTorch Overhead, and CUDA Context
 
-![Different memory statistics from nvidia-smi and PyTorch](/assets/img/blog/image-2.png){: width="100%" }
+![Different memory statistics from nvidia-smi and PyTorch](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-2.png){: width="100%" }
 
 Except for static memory and activations memory, some memory is big enough to be considered.
 
@@ -146,13 +146,13 @@ The following table shows the test configuration of the three models:
 ### 3.2 Results and Analysis
 
 ![Comparison of Experimental Memory and Estimated Memory - gpt-1b, gpt-5b, gpt-7b
-](/assets/img/blog/image-4.png){: width="100%" }
+](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-4.png){: width="100%" }
 
 After experiments, I got the experimental results on the chart. The chart is divided into three parts. From left to right are the results of gpt-1b, gpt-5b, and gpt-7b. The deletion of gpt-1b 32k sequence length and gpt-5b 32k and 64k sequence length is due to OOM. The gray column is the difference between experimental memory and estimated memory, and the percentage represented by the yellow line is the ratio of the difference to estimated memory.
 
 The estimation model performs well on gpt-5b and gpt-7b, with an error of about 5%. But in gpt-1b, there are more than 15% errors on 32k and 64k sequence length, and for gpt-7b 32k sequence length, the estimated memory is 61.10GB, lower than the 80GB GPU memory. It should not be OOM. To find the reason for this phenomenon, I used PyTorch's memory snapshot tool to profile the gpt-1b 64k sequence length training and found unexpected metrics.
 
-![PyTorch Memory Snapshot](/assets/img/blog/image-6.png){: width="100%" }
+![PyTorch Memory Snapshot](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-6.png){: width="100%" }
 
 The memory snapshot tool can see the change in PyTorch memory over time. In the figure, the part that does not change in the forward and backward process is the static memory. Our estimated static memory is 3.61GB, but the actual static memory is 12.5GB, which is far exceeded our expectations.
 
@@ -162,7 +162,7 @@ We can calculate the appropriate bucket size by the formula $$4 * P / Lt$$, wher
 
 After correcting the optimizer bucket size, I re-did the experiment, and the result was as expected.
 
-![Comparison of Experimental Memory and Estimated Memory with corrected optimizer bucket size - gpt-1b, gpt-5b, gpt-7b](/assets/img/blog/image-7.png){: width="100%" }
+![Comparison of Experimental Memory and Estimated Memory with corrected optimizer bucket size - gpt-1b, gpt-5b, gpt-7b](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-7.png){: width="100%" }
 
 ## 4 PyTorch Profiling Tools
 
@@ -208,7 +208,7 @@ with torch.profiler.profile(
 
 You can show trace event data(dump in "./log") in chrome tracing GUI, for example, Perfetto UI, and then you can find helpful information like GPU kernel execution time, call stack, memory usage, etc.
 
-![PyTorch trace event in Perfetto](/assets/img/blog/image-8.png){: width="100%" }
+![PyTorch trace event in Perfetto](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-8.png){: width="100%" }
 
 ### 4.2 PyTorch Memory Snapshot
 
@@ -246,7 +246,7 @@ $ wget https://raw.githubusercontent.com/pytorch/pytorch/master/torch/cuda/_memo
 $ python _memory_viz.py trace_plot snapshot.pickle -o trace.html
 ```
 
-Interactive visualization of gpt-1b 64k sequence length's memory snapshot [here](/assets/img/blog/trace.html).
+Interactive visualization of gpt-1b 64k sequence length's memory snapshot [here](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/trace.html).
 
 
 ## 5 Limitations
