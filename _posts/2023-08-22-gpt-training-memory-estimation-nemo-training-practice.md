@@ -248,7 +248,7 @@ $ wget https://raw.githubusercontent.com/pytorch/pytorch/master/torch/cuda/_memo
 $ python _memory_viz.py trace_plot snapshot.pickle -o trace.html
 ```
 
-Interactive visualization of gpt-1b 64k sequence length's memory snapshot [here]().
+Interactive visualization of gpt-1b 64k sequence length's memory snapshot [here](/assets/img/blog/trace.html).
 
 
 ## 5 Limitations
