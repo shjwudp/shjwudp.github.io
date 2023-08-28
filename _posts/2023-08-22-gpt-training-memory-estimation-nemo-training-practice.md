@@ -36,14 +36,14 @@ Suppose we train a GPT model in NeMo, with ZeRO-1 and bfloat16 mixed precision. 
 
 1. Model weights use bfloat16 as the data type; each parameter takes up 2 bytes, so the memory required for model weights is $$\frac{1}{t}P * 2$$.
 2. Optimizer states, NeMo ZeRO-1 optimizer `distributed_fused_adam` uses float32 to two gradient momentum, and int16 to model weights supplementary information, ZeRO-1 divides the optimizer states into $$d$$ parts, so the memory required for optimizer states is $$(\frac{1}{t}P * 4 * 2 + \frac{1}{t}P * 2)/d$$.
-3. Gradients use bfloat16 as the data type; each parameter takes up 2 bytes, so the memory required for gradients is $$\frac{1}{t}P * 2$$.
+3. The optimizer will save gradients in float32 precision and convert the gradients of bfloat16 into float32 in units of bucket size, so there will be a bucket-sized overhead. We ignore this constant overhead in the following formula. The memory required for gradients is $$\frac{1}{t}P * 4$$.
 
 ![ZeRO-1 divides optimizer states among data parallelism](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-1.png){: width="100%" }
 
 In total, the static memory required for training is:
 
 $$
-M_{static} = (4 + \frac{10}{d})\frac{1}{t}P
+M_{static} = (6 + \frac{10}{d})\frac{1}{t}P
 $$
 
 ### 2.2 Activations Memory Estimation
