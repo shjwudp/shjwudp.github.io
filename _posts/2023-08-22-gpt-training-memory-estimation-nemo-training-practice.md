@@ -24,6 +24,7 @@ Before we dive into the details, let's first define some notations:
 - $$a$$ - number of attention heads
 - $$b$$ - micro-batch size
 - $$h$$ - hidden dimension size
+- $$h_{ff}$$ - feed forward size
 - $$L$$ - number of transformer layers
 - $$v$$ - vocabulary size
 - $$t$$ - tensor parallel size
@@ -63,26 +64,32 @@ elements:
 
 Summing the above values, in total, the attention block requires $$11sbh + 5as^2b$$ bytes of storage.
 
-**MLP:** The two linear layers store their inputs with size $$2sbh$$ and $$2* 2.65625sbh$$. The SwiGLU non-linearity also needs its input with size $$2* 2.65625sbh$$ and two intermediate activations with the same size for back-propagation. Finally, dropout stores its mask with size $$sbh$$. In total, the MLP block requires $$23.25sbh$$ bytes of storage.
+**MLP:** The two linear layers store their inputs with size $$2sbh$$ and $$2sbh_{ff}$$. The SwiGLU non-linearity needs three $$2sbh_{ff}$$ sized activations, one for the input and others for the dot product. Finally, dropout stores its mask with size $$sbh$$. In total, the MLP block requires $$3sbh + 8sbh_{ff}$$ bytes of storage.
 
 **Layer norm:** Each layer norm stores its input with size $$2sbh$$ and therefore in total, we will need $$4sbh$$ of storage.
 
 Summing the memory required for attention, MLP, and layer norms, the memory needed to store the activations for a single layer of a transformer network is:
 
-Activations memory per layer = $$sbh(38.25 + 5\frac{as}{h})$$.
+Activations memory per layer = $$sbh(18 + 8\frac{h_{ff}}{h} + 5\frac{as}{h})$$.
 
-The majority of the required activation memory is captured by the equation above. However, this equation does not capture the activation memory needed for the input embeddings, the last layer norm, and the output layer cross-entropy. The input embeddings dropout requires $$sbh$$ bytes of storage; the last layer-norm requires $$2sbh$$ storage. Finally, the cross entropy loss requires storing the logits, which are calculated in a 32-bit floating point and, as a result, will require $$4sbv$$ of storage. So the extra memory due to the input embeddings, the last layer-norm, and the output layer is $$5sbh + 4sbv$$.
+The majority of the required activation memory is captured by the equation above. However, this equation does not capture the activation memory needed for the input embeddings, the last layer norm, and the output layer cross-entropy. The input embeddings dropout requires $$sbh$$ bytes of storage; the last layer-norm requires $$2sbh$$ storage. Finally, the cross entropy loss requires storing the logits, which are calculated in a 32-bit floating point and, as a result, will require $$4sbv$$ of storage. So the extra memory due to the input embeddings, the last layer-norm, and the output layer is $$3sbh + 4sbv$$.
 
 Adding the above two equations, the total memory required for activations is:
 
 $$
-M_{activation} = L * (sbh(38.25 + 5\frac{as}{h})) + 5sbh + 4sbv
+M_{activation} = L * (sbh(18 + 8\frac{h_{ff}}{h} + 5\frac{as}{h})) + 3sbh + 4sbv
+$$
+
+In addition, just like PaLM's practice, Dropout can be omitted in pre-training, saving the activation memory brought by the dropout mask of input Embedding, Attention, and MLP. The corresponding formula is as follows:
+
+$$
+M_{activation} = L * (sbh(16 + 8\frac{h_{ff}}{h} + 5\frac{as}{h})) + 2sbh + 4sbv
 $$
 
 One more thing, we still need to apply the NeMo optimization technique. NeMo uses selective activation recomputation (SAR) to reduce the memory required for storing activations by recomputing only a subset of the activations during the backward pass. And with tensor parallel SAR, the memory needed for storing activations is:
 
 $$
-M_{activation} = sbhL(10 + 28.25/t) + 2sbh + (3sbh + 4sbv)/t
+M_{activation} = sbhL(8 + (8 +8\frac{h_{ff}}{h})/t) + 2sbh + 4sbv/t
 $$
 
 *This chapter contains many excerpts from [Korthikanti et al., 2023](https://proceedings.mlsys.org/paper_files/paper/2023/hash/e851ca7b43815718fbbac8afb2246bf8-Abstract-mlsys2023.html); only in the MLP part there is a formula change because of the new activation function of GPT-Next.*
@@ -110,11 +117,11 @@ I selected three models for experimental configuration: gpt-1b, gpt-5b, and gpt-
 
 The following table shows the hyperparameters of the three models:
 
-| model  | L   | h    | v     | parameters |
-| :----- | :-- | :--- | :---- | :--------- |
-| gpt-1b | 24  | 2048 | 50257 | 1.41E+09   |
-| gpt-5b | 24  | 4096 | 50257 | 5.23E+09   |
-| gpt-7b | 32  | 4096 | 50257 | 6.84E+09   |
+| model  | L   | h    |$$h_{ff}$$| v     | parameters |
+| :----- | :-- | :--- |:---------| :---- | :--------- |
+| gpt-1b | 24  | 2048 |5440      | 50257 | 1.41E+09   |
+| gpt-5b | 24  | 4096 |10880     | 50257 | 5.23E+09   |
+| gpt-7b | 32  | 4096 |10880     | 50257 | 6.84E+09   |
 
 Each model organizes multiple sets of tests. The test starts from the sequence length of 2048 and gradually increases. To test as close as possible to the actual use, I adjust the tp(tensor parallel world size) and micro-batch size according to the situation so that the training is always performed efficiently.
 
@@ -122,26 +129,26 @@ The following table shows the test configuration of the three models:
 
 | parameters | sequence length | dp  | tp  | micro-batch size |     | Estimated Static Memory | Estimated Activation Memory | Estimated Cross-Entropy Overhead |     | Estimated Memory |
 | :--------- | :-------------- | :-- | :-- | :--------------- | :-- | :---------------------- | :-------------------------- | :------------------------------- | :-- | :--------------- |
-| gpt-1b     | 2048            | 8   | 1   | 2                |     | 9.52                    | 7.60                        | 0.77                             |     | 17.89            |
-| gpt-1b     | 4096            | 8   | 1   | 2                |     | 9.52                    | 15.21                       | 1.53                             |     | 26.26            |
-| gpt-1b     | 8192            | 8   | 1   | 2                |     | 9.52                    | 30.41                       | 3.07                             |     | 43.00            |
-| gpt-1b     | 16384           | 8   | 1   | 1                |     | 9.52                    | 30.41                       | 3.07                             |     | 43.00            |
-| gpt-1b     | 32768           | 4   | 2   | 1                |     | 5.58                    | 36.47                       | 4.60                             |     | 46.66            |
-| gpt-1b     | 65536           | 2   | 4   | 1                |     | 3.61                    | 48.60                       | 4.60                             |     | 56.81            |
+| gpt-1b     | 2048            | 8   | 1   | 2                |     | 9.52                    | 7.77                        | 0.77                             |     | 18.05            |
+| gpt-1b     | 4096            | 8   | 1   | 2                |     | 9.52                    | 15.53                       | 1.53                             |     | 26.59            |
+| gpt-1b     | 8192            | 8   | 1   | 2                |     | 9.52                    | 31.07                       | 3.07                             |     | 43.66            |
+| gpt-1b     | 16384           | 8   | 1   | 1                |     | 9.52                    | 31.07                       | 3.07                             |     | 43.66            |
+| gpt-1b     | 32768           | 4   | 2   | 1                |     | 5.58                    | 37.13                       | 4.60                             |     | 47.31            |
+| gpt-1b     | 65536           | 2   | 4   | 1                |     | 3.61                    | 49.25                       | 4.60                             |     | 57.47            |
 |            |                 |     |     |                  |     |                         |                             |                                  |     |                  |
-| gpt-5b     | 2048            | 8   | 1   | 2                |     | 35.31                   | 14.44                       | 0.77                             |     | 50.52            |
-| gpt-5b     | 4096            | 8   | 1   | 1                |     | 35.31                   | 14.44                       | 0.77                             |     | 50.52            |
-| gpt-5b     | 8192            | 4   | 2   | 2                |     | 20.70                   | 34.94                       | 2.30                             |     | 57.94            |
-| gpt-5b     | 16384           | 4   | 2   | 1                |     | 20.70                   | 34.94                       | 2.30                             |     | 57.94            |
-| gpt-5b     | 32768           | 2   | 4   | 1                |     | 13.39                   | 47.06                       | 2.30                             |     | 62.76            |
-| gpt-5b     | 65536           | 1   | 8   | 1                |     | 9.74                    | 71.31                       | 2.30                             |     | 83.36            |
+| gpt-5b     | 2048            | 8   | 1   | 2                |     | 35.31                   | 14.77                       | 0.77                             |     | 50.85            |
+| gpt-5b     | 4096            | 8   | 1   | 1                |     | 35.31                   | 14.77                       | 0.77                             |     | 50.85            |
+| gpt-5b     | 8192            | 4   | 2   | 2                |     | 20.70                   | 35.60                       | 2.30                             |     | 58.60            |
+| gpt-5b     | 16384           | 4   | 2   | 1                |     | 20.70                   | 35.60                       | 2.30                             |     | 58.60            |
+| gpt-5b     | 32768           | 2   | 4   | 1                |     | 13.39                   | 47.72                       | 2.30                             |     | 63.42            |
+| gpt-5b     | 65536           | 1   | 8   | 1                |     | 9.74                    | 71.97                       | 2.30                             |     | 84.01            |
 |            |                 |     |     |                  |     |                         |                             |                                  |     |                  |
-| gpt-7b     | 2048            | 8   | 1   | 2                |     | 46.25                   | 18.97                       | 0.77                             |     | 65.99            |
-| gpt-7b     | 4096            | 8   | 1   | 1                |     | 46.25                   | 18.97                       | 0.77                             |     | 65.99            |
-| gpt-7b     | 8192            | 4   | 2   | 1                |     | 27.11                   | 23.00                       | 1.15                             |     | 51.26            |
-| gpt-7b     | 16384           | 2   | 4   | 1                |     | 17.54                   | 31.06                       | 1.15                             |     | 49.76            |
-| gpt-7b     | 32768           | 1   | 8   | 1                |     | 12.76                   | 47.19                       | 1.15                             |     | 61.10            |
-| gpt-7b     | 65536           | 1   | 8   | 1                |     | 12.76                   | 94.38                       | 2.30                             |     | 109.44           |
+| gpt-7b     | 2048            | 8   | 1   | 2                |     | 46.25                   | 19.42                       | 0.77                             |     | 66.44            |
+| gpt-7b     | 4096            | 8   | 1   | 1                |     | 46.25                   | 19.42                       | 0.77                             |     | 66.44            |
+| gpt-7b     | 8192            | 4   | 2   | 1                |     | 27.11                   | 23.45                       | 1.15                             |     | 51.72            |
+| gpt-7b     | 16384           | 2   | 4   | 1                |     | 17.54                   | 31.52                       | 1.15                             |     | 50.21            |
+| gpt-7b     | 32768           | 1   | 8   | 1                |     | 12.76                   | 47.64                       | 1.15                             |     | 61.55            |
+| gpt-7b     | 65536           | 1   | 8   | 1                |     | 12.76                   | 95.28                       | 2.30                             |     | 110.34           |
 
 ### 3.2 Results and Analysis
 
@@ -150,7 +157,7 @@ The following table shows the test configuration of the three models:
 
 After experiments, I got the experimental results on the chart. The chart is divided into three parts. From left to right are the results of gpt-1b, gpt-5b, and gpt-7b. The deletion of gpt-1b 32k sequence length and gpt-5b 32k and 64k sequence length is due to OOM. The gray column is the difference between experimental memory and estimated memory, and the percentage represented by the yellow line is the ratio of the difference to estimated memory.
 
-The estimation model performs well on gpt-5b and gpt-7b, with an error of about 5%. But in gpt-1b, there are more than 15% errors on 32k and 64k sequence length, and for gpt-7b 32k sequence length, the estimated memory is 61.10GB, lower than the 80GB GPU memory. It should not be OOM. To find the reason for this phenomenon, I used PyTorch's memory snapshot tool to profile the gpt-1b 64k sequence length training and found unexpected metrics.
+The estimation model performs well on gpt-5b and gpt-7b, with an error of about 5%. But in gpt-1b, there are more than 15% errors on 32k and 64k sequence length, and for gpt-7b 32k sequence length, the estimated memory is 61.55GB, lower than the 80GB GPU memory. It should not be OOM. To find the reason for this phenomenon, I used PyTorch's memory snapshot tool to profile the gpt-1b 64k sequence length training and found unexpected metrics.
 
 ![PyTorch Memory Snapshot](/assets/posts/2023-08-22-gpt-training-memory-estimation-nemo-training-practice/image-6.png){: width="100%" }
 
@@ -267,3 +274,4 @@ Finally, regarding PyTorch, I would like to add that the memory counted by PyTor
 
 1. [Korthikanti, V.A., Casper, J., Lym, S., McAfee, L., Andersch, M., Shoeybi, M. and Catanzaro, B., 2023. Reducing activation recomputation in large transformer models. Proceedings of Machine Learning and Systems, 5.](https://proceedings.mlsys.org/paper_files/paper/2023/hash/e851ca7b43815718fbbac8afb2246bf8-Abstract-mlsys2023.html)
 2. [Visualizing PyTorch memory usage over time - Zach's Blog](https://zdevito.github.io/2022/12/09/memory-traces.html)
+3. [Chowdhery, A., Narang, S., Devlin, J., Bosma, M., Mishra, G., Roberts, A., Barham, P., Chung, H.W., Sutton, C., Gehrmann, S. and Schuh, P., 2022. Palm: Scaling language modeling with pathways. arXiv preprint arXiv:2204.02311.](https://arxiv.org/abs/2204.02311)
