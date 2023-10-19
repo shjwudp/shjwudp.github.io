@@ -77,13 +77,13 @@ The majority of the required activation memory is captured by the equation above
 Adding the above two equations, the total memory required for activations is:
 
 $$
-M_{activation} = L * (sbh(18 + 8\frac{h_{ff}}{h} + 5\frac{as}{h})) + 3sbh + 4sbv
+M_{activation} = sbhL(18 + 8\frac{h_{ff}}{h} + 5\frac{as}{h}) + 3sbh + 4sbv
 $$
 
 In addition, just like PaLM's practice, Dropout can be omitted in pre-training, saving the activation memory brought by the dropout mask of input Embedding, Attention, and MLP. The corresponding formula is as follows:
 
 $$
-M_{activation} = L * (sbh(16 + 8\frac{h_{ff}}{h} + 5\frac{as}{h})) + 2sbh + 4sbv
+M_{activation} = sbhL(16 + 8\frac{h_{ff}}{h} + 5\frac{as}{h}) + 2sbh + 4sbv
 $$
 
 One more thing, we still need to apply the NeMo optimization technique. NeMo uses selective activation recomputation (SAR) to reduce the memory required for storing activations by recomputing only a subset of the activations during the backward pass. And with tensor parallel SAR, the memory needed for storing activations is:
