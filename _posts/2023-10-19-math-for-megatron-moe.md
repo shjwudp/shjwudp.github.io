@@ -1,7 +1,7 @@
 ---
 layout: post
 title: 'Math for Megatron Mixture-of-Experts (MoE)'
-date: 2023-08-22 20:00:00 +0800
+date: 2023-10-19 20:00:00 +0800
 tags: Mixture-of-Experts
 categories: note
 giscus_comments: true
@@ -45,8 +45,8 @@ With tensor parallelism, sequence parallelism and expert tensor parallelism, the
 $$
 \begin{aligned}
 M_{static} &= M_{grad} + M_{model\_state} + M_{optimizer\_{state}} \\
-    &= \frac{P_{dense} + P_{MoE}}{p_{tp}} * 8 + \frac{P_{dense} + p_{ep}P_{MoE}}{p_{tp}p_{dp}} * 10 \\
-    &= \frac{P_{dense}}{p_{tp}p_{dp}}(8p_{dp}+10) + \frac{P_{MoE}}{p_{tp}p_{dp}}(8p_{dp}+10p_{ep})
+    &= \frac{P_{dense} + P_{MoE}}{p_{tp}} * 4 + \frac{P_{dense} + p_{ep}P_{MoE}}{p_{tp}p_{dp}} * 16 \\
+    &= \frac{P_{dense}}{p_{tp}p_{dp}}(4p_{dp}+16) + \frac{P_{MoE}}{p_{tp}p_{dp}}(4p_{dp}+16p_{ep})
 \end{aligned}
 $$
 
